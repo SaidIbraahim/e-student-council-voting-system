@@ -11,22 +11,26 @@ export const calculateResults = async (req, res) => {
   const { electionId } = req.params;
 
   try {
-    // Check if the election exists and is completed
     const election = await Election.findById(electionId);
     if (!election || new Date() < new Date(election.endDate)) {
       return res.status(400).json({ message: 'Election is either ongoing or does not exist' });
     }
 
-    // Count votes for each candidate in the election
     const results = await Vote.aggregate([
       { $match: { electionId: new mongoose.Types.ObjectId(election._id) } },
       { $group: { _id: "$candidateId", totalVotes: { $sum: 1 } } },
       { $sort: { totalVotes: -1 } }
     ]);
 
-    // Find the winner (candidate with the highest votes)
     const winnerId = results[0]?._id || null;
     const winner = winnerId ? await Candidate.findById(winnerId) : null;
+
+    // Emit real-time results to all connected clients
+    req.io.emit('liveResults', {
+      electionId,
+      results,
+      winner: winner ? { fullName: winner.fullName, totalVotes: results[0].totalVotes } : null
+    });
 
     res.status(200).json({
       electionId,
@@ -38,15 +42,10 @@ export const calculateResults = async (req, res) => {
   }
 };
 
-
-//Generate report
-
-
 export const generateReport = async (req, res) => {
   const { electionId } = req.params;
 
   try {
-    // Check if the election exists
     const election = await Election.findById(electionId);
     if (!election) {
       console.log('Election not found');
@@ -55,29 +54,21 @@ export const generateReport = async (req, res) => {
 
     console.log('Election found:', election);
 
-    // Aggregate votes for each candidate in the specified election
     const results = await Vote.aggregate([
       { $match: { electionId: new mongoose.Types.ObjectId(election._id) } },
       { $group: { _id: "$candidateId", totalVotes: { $sum: 1 } } },
       { $sort: { totalVotes: -1 } }
     ]);
 
-    console.log('Aggregated vote results:', results);
-
-    // Create reports directory if it doesn't exist
     const reportDir = path.join(process.cwd(), 'reports');
     if (!fs.existsSync(reportDir)) {
       fs.mkdirSync(reportDir);
       console.log('Reports directory created:', reportDir);
-    } else {
-      console.log('Reports directory already exists:', reportDir);
     }
 
-    // Define file path for CSV report
     const reportPath = path.join(reportDir, `election_${electionId}_results.csv`);
     console.log('Report file path:', reportPath);
 
-    // Prepare CSV data with additional information
     const csvWriter = createObjectCsvWriter({
       path: reportPath,
       header: [
@@ -93,18 +84,20 @@ export const generateReport = async (req, res) => {
       return {
         candidateName: candidate ? candidate.fullName : 'Unknown',
         electionName: election.name,
-        electionDate: election.startDate.toISOString().split('T')[0],  // Format date as YYYY-MM-DD
+        electionDate: election.startDate.toISOString().split('T')[0],
         totalVotes: result.totalVotes
       };
     }));
 
-    console.log('Candidate results data:', candidateResults);
-
-    // Write data to CSV
     await csvWriter.writeRecords(candidateResults);
     console.log('CSV file written successfully at', reportPath);
 
-    // Verify if the file exists before attempting download
+    // Emit real-time report notification
+    req.io.emit('reportGenerated', {
+      electionId,
+      reportPath: `/reports/election_${electionId}_results.csv`
+    });
+
     if (fs.existsSync(reportPath)) {
       console.log('Report file exists. Ready for download.');
       res.download(reportPath, `election_${electionId}_results.csv`, (err) => {
@@ -122,4 +115,3 @@ export const generateReport = async (req, res) => {
     res.status(500).json({ message: 'Failed to generate report', error: error.message });
   }
 };
-
