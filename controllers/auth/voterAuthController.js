@@ -49,3 +49,26 @@ export const registerVoter = async (req, res) => {
     res.status(500).json({ message: 'Failed to register voter', error: error.message });
   }
 };
+
+
+// Voter Login
+export const loginVoter = async (req, res) => {
+  const { mobile, password } = req.body;
+
+  try {
+    const user = await User.findOne({ mobile, role: 'Voter' });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid mobile number or password' });
+    }
+
+    const isPasswordMatch = await bcrypt.compare(password, user.password);
+    if (!isPasswordMatch) {
+      return res.status(401).json({ message: 'Invalid mobile number or password' });
+    }
+
+    await sendSMSVerification(mobile);
+    res.status(200).json({ message: 'OTP sent to your registered mobile number. Verify to complete login.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to log in', error: error.message });
+  }
+};
