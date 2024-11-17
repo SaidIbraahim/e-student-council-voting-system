@@ -72,3 +72,4 @@ export const loginVoter = async (req, res) => {
     res.status(500).json({ message: 'Failed to log in', error: error.message });
   }
 };
+git 
