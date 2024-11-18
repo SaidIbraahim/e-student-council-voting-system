@@ -1,3 +1,4 @@
+//controllers/auth/voterAuthController.js
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../../models/userModel.js';
@@ -72,4 +73,3 @@ export const loginVoter = async (req, res) => {
     res.status(500).json({ message: 'Failed to log in', error: error.message });
   }
 };
-git 

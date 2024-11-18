@@ -1,14 +1,15 @@
 // routes/authRoutes.js
 import express from 'express';
-import { registerUser } from '../controllers/authController.js';
-import { loginUser } from '../controllers/authController.js';
+import { registerVoter, loginVoter, verifyLoginOTP } from '../controllers/authController.js';
+
 
 const router = express.Router();
 
 // Registration endpoint
-router.post('/register', registerUser);
+router.post('/register-voter', registerVoter);
 
 // Login endpoint
-router.post('/login', loginUser);
+router.post('/login-voter', loginVoter);
+router.post('/verify-otp', verifyLoginOTP);
 
 export default router;

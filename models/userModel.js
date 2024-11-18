@@ -2,15 +2,16 @@
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
-  fullName: { type: String, required: true },
-  universityId: { type: String, required: true, unique: true },
-  role: { type: String, enum: ['Voter', 'Admin', 'Super Admin'], default: 'Voter' },
-  Dept: { type: String, required: true },
-  academicYear: { type: String},
-  email: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  studentId: { type: String, unique: true, sparse: true }, // Optional for Admins, required for Voters
+  email: { type: String, unique: true, required: function() { return this.role !== 'Voter'; } }, // Required for Admins
+  department: { type: String, required: true },
+  academicYear: { type: String }, // Optional for Admins
+  mobile: { type: String, unique: true, required: true }, // Required for Voter verification
   password: { type: String, required: true },
-  status: { type: String, enum: ['active', 'inactive'], default: 'active' },
-  profileImage: { type: String } // Optional field for Admins
+  role: { type: String, enum: ['Voter', 'Admin', 'Super Admin'], default: 'Voter' },
+  status: { type: String, enum: ['active', 'inactive', 'pending'], default: 'pending' },
+  profileImage: { type: String }, // Optional for Admins
 });
 
 const User = mongoose.model('User', userSchema);
