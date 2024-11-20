@@ -13,3 +13,4 @@ router.get('/report/:electionId', protect, superAdmin, generateReport);
 
 
 export default router;
+

@@ -7,13 +7,17 @@ import Candidate from '../models/candidateModel.js';
 import Election from '../models/electionModel.js';
 import { createObjectCsvWriter } from 'csv-writer';
 
+//calculate results
 export const calculateResults = async (req, res) => {
   const { electionId } = req.params;
 
   try {
     const election = await Election.findById(electionId);
-    if (!election || new Date() < new Date(election.endDate)) {
-      return res.status(400).json({ message: 'Election is either ongoing or does not exist' });
+    if (!election) {
+      return res.status(404).json({ message: 'Election not found' });
+    }
+    if (new Date() < new Date(election.endDate)) {
+      return res.status(400).json({ message: 'Election is still ongoing. Results cannot be calculated yet.' });
     }
 
     const results = await Vote.aggregate([
@@ -22,96 +26,110 @@ export const calculateResults = async (req, res) => {
       { $sort: { totalVotes: -1 } }
     ]);
 
-    const winnerId = results[0]?._id || null;
-    const winner = winnerId ? await Candidate.findById(winnerId) : null;
+    const detailedResults = await Promise.all(
+      results.map(async (result) => {
+        const candidate = await Candidate.findById(result._id);
+        return {
+          candidateId: result._id,
+          fullName: candidate ? candidate.fullName : 'Unknown Candidate',
+          department: candidate ? candidate.department : 'Unknown Department', // Include department
+          totalVotes: result.totalVotes
+        };
+      })
+    );
 
-    // Emit real-time results to all connected clients
+    const winner = detailedResults[0] || null;
+
     req.io.emit('liveResults', {
       electionId,
-      results,
-      winner: winner ? { fullName: winner.fullName, totalVotes: results[0].totalVotes } : null
+      results: detailedResults,
+      winner,
     });
 
     res.status(200).json({
       electionId,
-      results,
-      winner: winner ? { fullName: winner.fullName, totalVotes: results[0].totalVotes } : null
+      results: detailedResults,
+      winner,
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to calculate results', error: error.message });
   }
 };
 
+
+// Generate Report API
+// Generate Report API
 export const generateReport = async (req, res) => {
-  const { electionId } = req.params;
+  let { electionId } = req.params;
+  electionId = electionId.trim(); // Sanitize the electionId to remove any unexpected characters or whitespace
 
   try {
+    // Check if the election exists
     const election = await Election.findById(electionId);
     if (!election) {
-      console.log('Election not found');
       return res.status(404).json({ message: 'Election not found' });
     }
 
-    console.log('Election found:', election);
-
+    // Aggregate votes for the given election
     const results = await Vote.aggregate([
       { $match: { electionId: new mongoose.Types.ObjectId(election._id) } },
       { $group: { _id: "$candidateId", totalVotes: { $sum: 1 } } },
       { $sort: { totalVotes: -1 } }
     ]);
 
+    // Ensure the reports directory exists
     const reportDir = path.join(process.cwd(), 'reports');
     if (!fs.existsSync(reportDir)) {
       fs.mkdirSync(reportDir);
-      console.log('Reports directory created:', reportDir);
     }
 
+    // Define the path for the report file
     const reportPath = path.join(reportDir, `election_${electionId}_results.csv`);
-    console.log('Report file path:', reportPath);
 
+    // Configure the CSV writer
     const csvWriter = createObjectCsvWriter({
       path: reportPath,
       header: [
         { id: 'candidateName', title: 'Candidate Name' },
+        { id: 'department', title: 'Department' },
         { id: 'electionName', title: 'Election Name' },
         { id: 'electionDate', title: 'Election Date' },
         { id: 'totalVotes', title: 'Total Votes' }
       ]
     });
 
-    const candidateResults = await Promise.all(results.map(async (result) => {
-      const candidate = await Candidate.findById(result._id);
-      return {
-        candidateName: candidate ? candidate.fullName : 'Unknown',
-        electionName: election.name,
-        electionDate: election.startDate.toISOString().split('T')[0],
-        totalVotes: result.totalVotes
-      };
-    }));
+    // Prepare candidate data for the CSV
+    const candidateResults = await Promise.all(
+      results.map(async (result) => {
+        const candidate = await Candidate.findById(result._id);
+        return {
+          candidateName: candidate ? candidate.fullName : 'Unknown Candidate',
+          department: candidate ? candidate.department : 'Unknown Department',
+          electionName: election.name,
+          electionDate: election.startDate.toISOString().split('T')[0], // Format date as YYYY-MM-DD
+          totalVotes: result.totalVotes
+        };
+      })
+    );
 
+    // Write data to the CSV file
     await csvWriter.writeRecords(candidateResults);
-    console.log('CSV file written successfully at', reportPath);
 
-    // Emit real-time report notification
+    // Emit a real-time report notification
     req.io.emit('reportGenerated', {
       electionId,
       reportPath: `/reports/election_${electionId}_results.csv`
     });
 
-    if (fs.existsSync(reportPath)) {
-      console.log('Report file exists. Ready for download.');
-      res.download(reportPath, `election_${electionId}_results.csv`, (err) => {
-        if (err) {
-          console.error('Error sending the file:', err);
-          res.status(500).json({ message: 'Error downloading the file' });
-        }
-      });
-    } else {
-      console.error('Report file was not found after write operation.');
-      res.status(500).json({ message: 'Report file was not created successfully' });
-    }
+    // Send the report file for download
+    res.download(reportPath, `election_${electionId}_results.csv`, (err) => {
+      if (err) {
+        console.error('Error sending report file:', err);
+        res.status(500).json({ message: 'Failed to send report file' });
+      }
+    });
   } catch (error) {
-    console.error('Error in generateReport function:', error);
+    console.error('Error generating report:', error);
     res.status(500).json({ message: 'Failed to generate report', error: error.message });
   }
 };

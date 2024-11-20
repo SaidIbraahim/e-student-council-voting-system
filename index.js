@@ -4,6 +4,7 @@ import http from 'http'; // Import HTTP module to create a server
 import { Server } from 'socket.io'; // Import Socket.IO
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
+import adminRoutes from './routes/adminRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import electionRoutes from './routes/electionRoutes.js';
 import candidateRoutes from './routes/candidateRoutes.js';
@@ -26,14 +27,18 @@ const io = new Server(server, {
 app.use(express.json());
 
 // API Routes
+
+app.use('/api/admin', adminRoutes);      // Admin routes
 app.use('/api/auth', authRoutes);          // Authentication routes
 app.use('/api/elections', electionRoutes);  // Election routes
 app.use('/api/candidates', candidateRoutes); // Candidate routes
 app.use('/api/votes', voteRoutes);          // Voting routes
 app.use('/api/users', userRoutes);          // User routes
 
+
 // Pass `io` to your result routes
 app.use('/api/results', (req, res, next) => {
+  console.log(`API hit: ${req.method} ${req.originalUrl}`);
   req.io = io;
   next();
 }, resultRoutes); // Result routes
