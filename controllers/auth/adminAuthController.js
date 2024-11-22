@@ -5,23 +5,23 @@ import nodemailer from 'nodemailer';
 import User from '../../models/userModel.js';
 import InvitedUser from '../../models/invitedUserModel.js';
 
+//invite sub-admin
 export const inviteSubAdmin = async (req, res) => {
   const { name, email, department } = req.body;
 
   try {
-    // Check if the email is already registered in Users
+    // Check if the email is already registered in Users or InvitedUsers
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
-    // Check if the email already has a pending invitation
     const existingInvite = await InvitedUser.findOne({ email });
     if (existingInvite && existingInvite.expiresAt > Date.now()) {
       return res.status(400).json({ message: 'An active invitation already exists for this email' });
     }
 
-    // Generate a temporary password for the invited sub-admin
+    // Generate a temporary password
     const tempPassword = Math.random().toString(36).slice(-8);
     const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
@@ -30,18 +30,19 @@ export const inviteSubAdmin = async (req, res) => {
       name,
       email,
       department,
-      tempPassword: hashedPassword
+      tempPassword: hashedPassword,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours validity
     });
     await newInvite.save();
 
-    // Configure the email transport using Gmail
+    // Send the invitation email
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // Use SSL
+      secure: true,
       auth: {
-        user: process.env.EMAIL_USER, // Gmail address from .env
-        pass: process.env.EMAIL_PASS, // App Password from .env
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
       },
     });
 
@@ -50,22 +51,21 @@ export const inviteSubAdmin = async (req, res) => {
       to: email,
       subject: 'Admin Invitation - E-voting System',
       text: `Dear ${name},
-    
-    You have been invited to join the E-voting System as an Admin.
-    
-    Your login credentials are as follows:
-    - Username: ${email}
-    - Temporary password: ${tempPassword}
-    
-    To activate your account and log in, please visit: http://eau-student-e-voting-system.com/login
-    
-    This invitation is valid for 24 hours. After that, it will expire.
-    
-    Best regards,
-    E-voting System Team`
+
+You have been invited to join the E-voting System as an Admin.
+
+Your login credentials are as follows:
+- Username: ${email}
+- Temporary password: ${tempPassword}
+
+To activate your account and log in, please visit: http://student-e-voting-system.com/login
+
+This invitation is valid for 24 hours. After that, it will expire.
+
+Best regards,
+E-voting System Team`,
     };
 
-    // Send the email
     await transporter.sendMail(mailOptions);
 
     res.status(201).json({ message: 'Sub-admin invited successfully. The invitation is valid for 24 hours.' });
@@ -88,13 +88,13 @@ export const loginAdmin = async (req, res) => {
         return res.status(403).json({ message: 'Invitation expired. Please contact the admin for a new invitation.' });
       }
 
-      // Check if the provided password matches the temporary password
+      // Verify the temporary password
       const isPasswordMatch = await bcrypt.compare(password, invitedUser.tempPassword);
       if (!isPasswordMatch) {
         return res.status(401).json({ message: 'Invalid email or password' });
       }
 
-      // Activate the invited user by creating a new entry in the User collection
+      // Activate the invited user and save in the User collection
       const newUser = new User({
         name: invitedUser.name,
         email: invitedUser.email,
@@ -105,19 +105,19 @@ export const loginAdmin = async (req, res) => {
       });
       await newUser.save();
 
-      // Delete the entry from InvitedUsers
+      // Delete the entry from InvitedUsers after successful activation
       await InvitedUser.deleteOne({ email });
 
       return res.status(201).json({ message: 'Account activated successfully. Please log in with your credentials.' });
     }
 
-    // If the user is already an active Admin/Super Admin
+    // If the user is already an Admin/Super Admin
     const admin = await User.findOne({ email, role: { $in: ['Admin', 'Super Admin'] } });
     if (!admin) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Check password
+    // Verify the password
     const isPasswordMatch = await bcrypt.compare(password, admin.password);
     if (!isPasswordMatch) {
       return res.status(401).json({ message: 'Invalid email or password' });
